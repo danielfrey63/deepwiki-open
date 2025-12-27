@@ -164,14 +164,21 @@ class BedrockClient(ModelClient):
         """Extract the provider from the model ID.
         
         Args:
-            model_id: The model ID, e.g., "anthropic.claude-3-sonnet-20240229-v1:0"
+            model_id: The model inference ID, e.g., "anthropic.claude-3-sonnet-20240229-v1:0", "global.anthropic.claude-sonnet-4-5-20250929-v1:0", or "global.cohere.embed-v4:0"
             
         Returns:
             The provider name, e.g., "anthropic"
         """
-        if "." in model_id:
-            return model_id.split(".")[0]
-        return "amazon"  # Default provider
+        seg = model_id.split(".")
+        if len(seg) >= 3:
+            # regional format
+            return seg[1]
+        elif len(seg) == 2:
+            # non-regional format
+            return seg[0]
+        else:
+            # Default to Amazon if format is unexpected
+            return "amazon"
 
     def _format_prompt_for_provider(self, provider: str, prompt: str, messages=None) -> Dict[str, Any]:
         """Format the prompt according to the provider's requirements.

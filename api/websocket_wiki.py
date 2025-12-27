@@ -515,9 +515,11 @@ This file contains...
             model = BedrockClient()
             model_kwargs = {
                 "model": request.model,
-                "temperature": model_config["temperature"],
-                "top_p": model_config["top_p"],
             }
+
+            for key in ["temperature", "top_p"]:
+                if key in model_config:
+                    model_kwargs[key] = model_config[key]
 
             api_kwargs = model.convert_inputs_to_api_kwargs(
                 input=prompt,
