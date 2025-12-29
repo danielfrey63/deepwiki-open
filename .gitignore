@@ -67,3 +67,11 @@ next-env.d.ts
 
 # ignore adding self-signed certs
 certs/
+
+# project management artifacts  
+.auto-claude/  
+.worktrees/  
+logs/  
+temp/
+scripts/
+worktrees/
