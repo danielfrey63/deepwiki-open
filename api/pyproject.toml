@@ -12,6 +12,8 @@ python = "^3.11"
 fastapi = ">=0.95.0"
 uvicorn = { extras = ["standard"], version = ">=0.21.1" }
 pydantic = ">=2.0.0"
+tree-sitter = ">=0.21.0,<0.22.0"
+tree-sitter-languages = { version = ">=1.10.0", python = "<3.13" }
 google-generativeai = ">=0.3.0"
 tiktoken = ">=0.5.0"
 adalflow = ">=0.1.0"
