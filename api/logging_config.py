@@ -75,6 +75,7 @@ def setup_logging(format: str = None):
 
     # Apply logging configuration
     logging.basicConfig(level=log_level, handlers=[file_handler, console_handler], force=True)
+    logging.getLogger("adalflow").setLevel(logging.WARNING)
 
     # Log configuration info
     logger = logging.getLogger(__name__)
