@@ -18,7 +18,6 @@ import requests
 from requests.exceptions import RequestException
 
 from api.tools.embedder import get_embedder
-from api.code_splitter import CodeAwareSplitter, TreeSitterCodeSplitter
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -258,17 +257,14 @@ def read_all_documents(path: str, embedder_type: str = None, is_ollama_embedder:
 
         def matches_any_glob(patterns: List[str]) -> bool:
             for pattern in patterns:
-                if not pattern:
-                    continue
-                p = pattern.strip()
+                p = pattern.strip() if pattern else ""
                 if not p:
                     continue
 
                 p_norm = os.path.normpath(p)
 
-                if fnmatch.fnmatchcase(file_name, p_norm):
-                    return True
-                if fnmatch.fnmatchcase(rel_path_norm, p_norm):
+                if (fnmatch.fnmatchcase(file_name, p_norm) or
+                        fnmatch.fnmatchcase(rel_path_norm, p_norm)):
                     return True
             return False
 
@@ -417,9 +413,6 @@ def prepare_data_pipeline(embedder_type: str = None, is_ollama_embedder: bool = 
     if embedder_type is None:
         embedder_type = get_embedder_type()
 
-    text_splitter = TextSplitter(**configs["text_splitter"])
-    code_splitter = TreeSitterCodeSplitter(**configs.get("code_splitter", {}))
-    splitter = CodeAwareSplitter(text_splitter=text_splitter, code_splitter=code_splitter)
     embedder_config = get_embedder_config()
 
     embedder = get_embedder(embedder_type=embedder_type)
