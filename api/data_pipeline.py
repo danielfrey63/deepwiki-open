@@ -886,6 +886,10 @@ class DatabaseManager:
         if self.repo_paths and os.path.exists(self.repo_paths["save_db_file"]):
             logger.info("Loading existing database...")
             try:
+                try:
+                    import api.code_splitter
+                except Exception:
+                    pass
                 self.db = LocalDB.load_state(self.repo_paths["save_db_file"])
                 documents = self.db.get_transformed_data(key="split_and_embed")
                 if documents:
@@ -913,7 +917,14 @@ class DatabaseManager:
                     e,
                 )
             except Exception as e:
-                logger.warning("Error loading existing database. Rebuilding embeddings... (%s)", e)
+                msg = str(e)
+                if "Unknown class type" in msg and "CodeAwareSplitter" in msg:
+                    logger.warning(
+                        "Existing database could not be loaded due to missing component class (CodeAwareSplitter). Rebuilding embeddings... (%s)",
+                        msg,
+                    )
+                else:
+                    logger.warning("Error loading existing database. Rebuilding embeddings... (%s)", msg)
                 # Continue to create a new database
 
         # prepare the database
