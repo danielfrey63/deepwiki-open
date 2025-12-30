@@ -296,3 +296,10 @@ class CodeAwareSplitter(DataComponent):
                 logger.info("TextSplitter result: %s -> %d chunks", file_path, len(chunks))
                 output.extend(chunks)
         return output
+
+try:
+    import adalflow.core.component as _adalflow_component
+
+    setattr(_adalflow_component, "CodeAwareSplitter", CodeAwareSplitter)
+except Exception:
+    pass
