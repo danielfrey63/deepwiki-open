@@ -14,7 +14,6 @@
       "./.bzr/"
     ],
     "excluded_files": [
-      "package-lock.json",
       "yarn.lock", 
       "pnpm-lock.yaml", 
       "npm-shrinkwrap.json", 
@@ -33,7 +32,6 @@
       "*.env", 
       "*.cfg", 
       "*.ini", 
-      "*.md",
       ".flaskenv", 
       ".gitignore", 
       ".gitattributes", 
