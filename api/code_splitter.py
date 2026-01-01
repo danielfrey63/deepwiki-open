@@ -79,7 +79,7 @@ def _safe_import_tree_sitter() -> Tuple[Any, Any, Any]:
             get_parser = getattr(mod, "get_parser", None)
             if callable(get_parser):
                 return get_parser, None, None
-        except Exception:
+        except ImportError:
             continue
 
     return None, None, None
@@ -116,14 +116,13 @@ def _split_lines_with_overlap(
     return chunks
 
 
-def _slice_text_by_bytes(text: str, start_byte: int, end_byte: int) -> str:
-    b = text.encode("utf-8", errors="replace")
-    return b[start_byte:end_byte].decode("utf-8", errors="replace")
+def _slice_text_by_bytes_preencoded(text_bytes: bytes, start_byte: int, end_byte: int) -> str:
+    return text_bytes[start_byte:end_byte].decode("utf-8", errors="replace")
 
 
-def _byte_offset_to_line(text: str, byte_offset: int) -> int:
-    prefix = _slice_text_by_bytes(text, 0, max(0, byte_offset))
-    return prefix.count("\n") + 1
+def _byte_offset_to_line_preencoded(text_bytes: bytes, byte_offset: int) -> int:
+    prefix = text_bytes[:max(0, byte_offset)]
+    return prefix.count(b"\n") + 1
 
 
 class TreeSitterCodeSplitter:
@@ -182,8 +181,9 @@ class TreeSitterCodeSplitter:
         if parser is None:
             return self._fallback_line_split(text, meta)
 
+        text_bytes = text.encode("utf-8", errors="replace")
         try:
-            tree = parser.parse(text.encode("utf-8", errors="replace"))
+            tree = parser.parse(text_bytes)
         except Exception:
             return self._fallback_line_split(text, meta)
 
@@ -200,10 +200,10 @@ class TreeSitterCodeSplitter:
             try:
                 start_b = int(getattr(node, "start_byte"))
                 end_b = int(getattr(node, "end_byte"))
-            except Exception:
+            except (AttributeError, ValueError, TypeError):
                 continue
-            snippet = _slice_text_by_bytes(text, start_b, end_b)
-            start_line = _byte_offset_to_line(text, start_b)
+            snippet = _slice_text_by_bytes_preencoded(text_bytes, start_b, end_b)
+            start_line = _byte_offset_to_line_preencoded(text_bytes, start_b)
             pieces.append((snippet, start_line))
 
         if not pieces:
@@ -229,11 +229,14 @@ class TreeSitterCodeSplitter:
 
         if not docs:
             return self._fallback_line_split(text, meta)
+        else:
+            return self._add_chunk_metadata(docs)
 
+    def _add_chunk_metadata(self, docs: List[Document]) -> List[Document]:
+        """Add chunk index and total metadata to documents."""
         for i, d in enumerate(docs):
             d.meta_data["chunk_index"] = i
             d.meta_data["chunk_total"] = len(docs)
-
         return docs
 
     def _fallback_line_split(self, text: str, meta: Dict[str, Any]) -> List[Document]:
@@ -252,12 +255,8 @@ class TreeSitterCodeSplitter:
 
         if not docs:
             return [Document(text=text, meta_data=dict(meta))]
-
-        for i, d in enumerate(docs):
-            d.meta_data["chunk_index"] = i
-            d.meta_data["chunk_total"] = len(docs)
-
-        return docs
+        else:
+            return self._add_chunk_metadata(docs)
 
     def _make_chunk_doc(self, chunk_text: str, meta: Dict[str, Any], start_line: int) -> Document:
         new_meta = dict(meta)

@@ -8,7 +8,6 @@ import tiktoken
 import logging
 import base64
 import glob
-import fnmatch
 from adalflow.utils import get_adalflow_default_root_path
 from adalflow.core.db import LocalDB
 from api.config import configs, DEFAULT_EXCLUDED_DIRS, DEFAULT_EXCLUDED_FILES
