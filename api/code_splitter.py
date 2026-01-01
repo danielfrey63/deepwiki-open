@@ -174,7 +174,8 @@ class TreeSitterCodeSplitter:
         for name in self._get_language_name_candidates(file_type):
             try:
                 return self._get_parser(name)
-            except Exception:
+            except Exception as e:
+                logger.debug("Failed to get parser for language '%s': %s", name, e)
                 continue
         return None
 
@@ -202,7 +203,8 @@ class TreeSitterCodeSplitter:
             try:
                 start_b = int(getattr(node, "start_byte"))
                 end_b = int(getattr(node, "end_byte"))
-            except (AttributeError, ValueError, TypeError):
+            except (AttributeError, ValueError, TypeError) as e:
+                logger.debug("Could not process a tree-sitter node for file type '%s': %s", file_type, e)
                 continue
             snippet = _slice_text_by_bytes_preencoded(text_bytes, start_b, end_b)
             start_line = _byte_offset_to_line_preencoded(text_bytes, start_b)
@@ -235,7 +237,6 @@ class TreeSitterCodeSplitter:
             return self._add_chunk_metadata(docs)
 
     def _add_chunk_metadata(self, docs: List[Document]) -> List[Document]:
-        """Add chunk index and total metadata to documents."""
         for i, d in enumerate(docs):
             d.meta_data["chunk_index"] = i
             d.meta_data["chunk_total"] = len(docs)
@@ -298,9 +299,22 @@ class CodeAwareSplitter(DataComponent):
                 output.extend(chunks)
         return output
 
-try:
-    import adalflow.core.component as _adalflow_component
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "text_splitter": self._text_splitter.to_dict() if hasattr(self._text_splitter, "to_dict") else None,
+            "code_splitter_config": {
+                "chunk_size_lines": self._code_splitter.config.chunk_size_lines,
+                "chunk_overlap_lines": self._code_splitter.config.chunk_overlap_lines,
+                "min_chunk_lines": self._code_splitter.config.min_chunk_lines,
+                "enabled": self._code_splitter.config.enabled,
+            }
+        }
 
-    setattr(_adalflow_component, "CodeAwareSplitter", CodeAwareSplitter)
-except (ImportError, AttributeError) as e:
-    logger.warning("Could not patch adalflow with CodeAwareSplitter: %s", e)
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "CodeAwareSplitter":
+        from adalflow.components.data_process import TextSplitter
+        text_splitter_data = data.get("text_splitter")
+        text_splitter = TextSplitter.from_dict(text_splitter_data) if text_splitter_data else TextSplitter()
+        code_config = data.get("code_splitter_config", {})
+        code_splitter = TreeSitterCodeSplitter(**code_config)
+        return cls(text_splitter=text_splitter, code_splitter=code_splitter)

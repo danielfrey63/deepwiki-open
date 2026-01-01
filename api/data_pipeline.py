@@ -893,15 +893,13 @@ class DatabaseManager:
                         )
                     else:
                         return documents
+            except (AttributeError, KeyError, TypeError) as e:
+                logger.warning(
+                    "Existing database could not be loaded due to incompatible schema or missing components. Rebuilding embeddings... (%s)",
+                    e,
+                )
             except Exception as e:
-                msg = str(e)
-                if "Unknown class type" in msg and "CodeAwareSplitter" in msg:
-                    logger.warning(
-                        "Existing database could not be loaded due to missing component class (CodeAwareSplitter). Rebuilding embeddings... (%s)",
-                        msg,
-                    )
-                else:
-                    logger.warning("Error loading existing database. Rebuilding embeddings... (%s)", msg)
+                logger.warning("Error loading existing database. Rebuilding embeddings... (%s)", e)
                 # Continue to create a new database
 
         # prepare the database
