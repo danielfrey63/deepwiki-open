@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import importlib
 import logging
-from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
+from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence, Tuple
 
 from adalflow.core.component import DataComponent
 from adalflow.components.data_process import TextSplitter
@@ -68,7 +68,8 @@ class CodeSplitterConfig:
     enabled: bool = True
 
 
-def _safe_import_tree_sitter() -> Tuple[Any, Any, Any]:
+def _safe_import_tree_sitter() -> Optional[Callable[..., Any]]:
+    """Safely import and return the `get_parser` function from tree_sitter_languages."""
     module_candidates = [
         "tree_sitter_languages",  # module name used by tree-sitter-languages on most installs
     ]
@@ -78,20 +79,21 @@ def _safe_import_tree_sitter() -> Tuple[Any, Any, Any]:
             mod = importlib.import_module(module_name)
             get_parser = getattr(mod, "get_parser", None)
             if callable(get_parser):
-                return get_parser, None, None
+                return get_parser
         except ImportError:
             continue
 
-    return None, None, None
+    return None
 
 
 def _iter_definition_like_nodes(root_node: Any) -> Iterable[Any]:
-    for child in getattr(root_node, "children", []) or []:
+    for child in getattr(root_node, "children", []):
         if not getattr(child, "is_named", False):
             continue
-        node_type = getattr(child, "type", "") or ""
-        lowered = node_type.lower()
-        if any(k in lowered for k in _DEFINITION_TYPE_KEYWORDS):
+        node_type = getattr(child, "type", "")
+        # Split node type into words to avoid partial matches on keywords.
+        lowered_parts = set(node_type.lower().replace("_", " ").split())
+        if any(k in lowered_parts for k in _DEFINITION_TYPE_KEYWORDS):
             yield child
 
 
@@ -140,7 +142,7 @@ class TreeSitterCodeSplitter:
             min_chunk_lines=min_chunk_lines,
             enabled=enabled,
         )
-        self._get_parser, _, _ = _safe_import_tree_sitter()
+        self._get_parser = _safe_import_tree_sitter()
 
     def is_available(self) -> bool:
         return self._get_parser is not None
@@ -300,5 +302,5 @@ try:
     import adalflow.core.component as _adalflow_component
 
     setattr(_adalflow_component, "CodeAwareSplitter", CodeAwareSplitter)
-except Exception:
-    pass
+except (ImportError, AttributeError) as e:
+    logger.warning("Could not patch adalflow with CodeAwareSplitter: %s", e)
