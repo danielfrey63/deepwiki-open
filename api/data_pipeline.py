@@ -250,27 +250,8 @@ def read_all_documents(path: str, embedder_type: str = None, is_ollama_embedder:
         Returns:
             bool: True if the file should be processed, False otherwise
         """
-        norm_file_path = os.path.normpath(file_path)
-        file_path_parts = norm_file_path.split(os.sep)
-        file_name = os.path.basename(norm_file_path)
-        rel_path = os.path.relpath(norm_file_path, path)
-        rel_path_norm = os.path.normpath(rel_path)
-
-        def matches_any_glob(patterns: List[str]) -> bool:
-            for pattern in patterns:
-                if not pattern:
-                    continue
-                p = pattern.strip()
-                if not p:
-                    continue
-
-                p_norm = os.path.normpath(p)
-
-                if fnmatch.fnmatchcase(file_name, p_norm):
-                    return True
-                if fnmatch.fnmatchcase(rel_path_norm, p_norm):
-                    return True
-            return False
+        file_path_parts = os.path.normpath(file_path).split(os.sep)
+        file_name = os.path.basename(file_path)
 
         if use_inclusion:
             # Inclusion mode: file must be in included directories or match included files
@@ -286,7 +267,10 @@ def read_all_documents(path: str, embedder_type: str = None, is_ollama_embedder:
 
             # Check if file matches included file patterns
             if not is_included and included_files:
-                is_included = matches_any_glob(included_files)
+                for included_file in included_files:
+                    if file_name == included_file or file_name.endswith(included_file):
+                        is_included = True
+                        break
 
             # If no inclusion rules are specified for a category, allow all files from that category
             if not included_dirs and not included_files:
@@ -312,7 +296,10 @@ def read_all_documents(path: str, embedder_type: str = None, is_ollama_embedder:
 
             # Check if file matches excluded file patterns
             if not is_excluded:
-                is_excluded = matches_any_glob(excluded_files)
+                for excluded_file in excluded_files:
+                    if file_name == excluded_file:
+                        is_excluded = True
+                        break
 
             return not is_excluded
 
@@ -886,10 +873,6 @@ class DatabaseManager:
         if self.repo_paths and os.path.exists(self.repo_paths["save_db_file"]):
             logger.info("Loading existing database...")
             try:
-                try:
-                    import api.code_splitter
-                except Exception:
-                    pass
                 self.db = LocalDB.load_state(self.repo_paths["save_db_file"])
                 documents = self.db.get_transformed_data(key="split_and_embed")
                 if documents:
