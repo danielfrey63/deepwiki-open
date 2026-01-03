@@ -25,19 +25,6 @@ _DEFINITION_TYPE_KEYWORDS = (
     "type",
 )
 
-# Node types that typically contain other definitions (classes, interfaces, etc.)
-# For these, we extract parent structure without child nodes
-_CONTAINER_TYPE_KEYWORDS = (
-    "class",
-    "interface",
-    "struct",
-    "enum",
-    "trait",
-    "module",
-    "namespace",
-)
-
-
 _EXT_TO_LANGUAGE: Dict[str, str] = {
     "py": "python",
     "js": "javascript",
