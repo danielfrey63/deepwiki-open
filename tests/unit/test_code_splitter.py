@@ -580,5 +580,5 @@ class TestCodeSplitterConfig:
         """Test that config is frozen (immutable)."""
         config = CodeSplitterConfig()
         
-        with pytest.raises(Exception):
+        with pytest.raises(dataclasses.FrozenInstanceError):
             config.chunk_size_lines = 300
