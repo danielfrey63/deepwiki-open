@@ -76,3 +76,5 @@ temp/
 scripts/
 worktrees/
 models/
+.gemini/
+gha-creds-*.json
