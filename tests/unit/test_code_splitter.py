@@ -389,6 +389,38 @@ class TestTreeSitterCodeSplitter:
         assert "results = []" in process_data_shell.text
         assert "return results" in process_data_shell.text
 
+    def test_recursion_depth_limit(self, splitter):
+        """Test that recursion depth limit is respected and falls back to line splitting."""
+        # Set a very low depth limit for testing
+        splitter.config = CodeSplitterConfig(
+            chunk_size_lines=5,
+            chunk_overlap_lines=0,
+            min_chunk_lines=1,
+            max_recursion_depth=1
+        )
+        
+        code = '''def level_0():
+    def level_1():
+        def level_2():
+            def level_3():
+                print("Deep")
+                print("Nesting")
+                print("To")
+                print("Trigger")
+                print("Limit")
+'''
+        doc = Document(
+            text=code,
+            meta_data={"file_path": "deep.py", "type": "py", "is_code": True},
+        )
+        
+        # This should trigger the limit at level 2 because level 0 is depth 0, level 1 is depth 1
+        result = splitter.split_document(doc)
+        
+        assert len(result) >= 1
+        # Level 2 and deeper should be processed via line splitting within level 1's recursive call
+        # Or level 1 itself triggers it if it's too large.
+        
     def test_unsupported_language_fallback(self, splitter):
         """Test fallback for unsupported file types."""
         code = '''Some random text

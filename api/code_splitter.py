@@ -77,6 +77,7 @@ class CodeSplitterConfig:
     chunk_size_lines: int = 200
     chunk_overlap_lines: int = 20
     min_chunk_lines: int = 5
+    max_recursion_depth: int = 256
     enabled: bool = True
 
 
@@ -154,12 +155,14 @@ class TreeSitterCodeSplitter:
         chunk_size_lines: int = 200,
         chunk_overlap_lines: int = 20,
         min_chunk_lines: int = 5,
+        max_recursion_depth: int = 256,
         enabled: bool = True,
     ) -> None:
         self.config = CodeSplitterConfig(
             chunk_size_lines=chunk_size_lines,
             chunk_overlap_lines=chunk_overlap_lines,
             min_chunk_lines=min_chunk_lines,
+            max_recursion_depth=max_recursion_depth,
             enabled=enabled,
         )
         self._get_parser = _safe_import_tree_sitter()
@@ -221,7 +224,7 @@ class TreeSitterCodeSplitter:
 
         docs: List[Document] = []
         for node in nodes:
-            node_docs = self._split_node_recursively(node, text_bytes, meta)
+            node_docs = self._split_node_recursively(node, text_bytes, meta, depth=0)
             docs.extend(node_docs)
 
         if not docs:
@@ -229,7 +232,7 @@ class TreeSitterCodeSplitter:
         else:
             return self._add_chunk_metadata(docs)
 
-    def _split_node_recursively(self, node: Any, text_bytes: bytes, meta: Dict[str, Any]) -> List[Document]:
+    def _split_node_recursively(self, node: Any, text_bytes: bytes, meta: Dict[str, Any], depth: int) -> List[Document]:
         try:
             start_b = int(getattr(node, "start_byte"))
             end_b = int(getattr(node, "end_byte"))
@@ -244,6 +247,12 @@ class TreeSitterCodeSplitter:
         # If node fits in chunk size, return it as-is (no min_chunk_lines filter for semantic nodes)
         if len(snippet_lines) <= self.config.chunk_size_lines:
             return [self._make_chunk_doc(snippet, meta, start_line)]
+
+        # Check recursion depth limit
+        if depth >= self.config.max_recursion_depth:
+            logger.warning("Max recursion depth (%d) reached for node at line %d, falling back to line-based splitting.", 
+                           self.config.max_recursion_depth, start_line)
+            return self._line_split_snippet(snippet, snippet_lines, meta, start_line)
 
         # Node is too large, try to split by child nodes
         child_nodes = list(_iter_definition_like_nodes(node))
@@ -280,12 +289,15 @@ class TreeSitterCodeSplitter:
             
             # Then recursively process child nodes (no min_chunk_lines filter)
             for child in child_nodes:
-                child_docs = self._split_node_recursively(child, text_bytes, meta)
+                child_docs = self._split_node_recursively(child, text_bytes, meta, depth + 1)
                 docs.extend(child_docs)
             
             return docs
 
         # No child nodes found, fall back to line-based splitting
+        return self._line_split_snippet(snippet, snippet_lines, meta, start_line)
+
+    def _line_split_snippet(self, snippet: str, snippet_lines: List[str], meta: Dict[str, Any], start_line: int) -> List[Document]:
         docs: List[Document] = []
         for sub, sub_start_idx in _split_lines_with_overlap(
             snippet_lines,
@@ -366,6 +378,7 @@ class CodeAwareSplitter(DataComponent):
                 "chunk_size_lines": self._code_splitter.config.chunk_size_lines,
                 "chunk_overlap_lines": self._code_splitter.config.chunk_overlap_lines,
                 "min_chunk_lines": self._code_splitter.config.min_chunk_lines,
+                "max_recursion_depth": self._code_splitter.config.max_recursion_depth,
                 "enabled": self._code_splitter.config.enabled,
             }
         }
