@@ -1,4 +1,5 @@
 import pytest
+import dataclasses
 from adalflow.core.types import Document
 from api.code_splitter import (
     TreeSitterCodeSplitter,
@@ -560,6 +561,7 @@ class TestCodeSplitterConfig:
         assert config.chunk_size_lines == 200
         assert config.chunk_overlap_lines == 20
         assert config.min_chunk_lines == 5
+        assert config.max_recursion_depth == 256
         assert config.enabled is True
 
     def test_custom_config(self):
@@ -568,12 +570,14 @@ class TestCodeSplitterConfig:
             chunk_size_lines=100,
             chunk_overlap_lines=10,
             min_chunk_lines=3,
+            max_recursion_depth=128,
             enabled=False,
         )
         
         assert config.chunk_size_lines == 100
         assert config.chunk_overlap_lines == 10
         assert config.min_chunk_lines == 3
+        assert config.max_recursion_depth == 128
         assert config.enabled is False
 
     def test_config_immutability(self):
@@ -582,3 +586,6 @@ class TestCodeSplitterConfig:
         
         with pytest.raises(dataclasses.FrozenInstanceError):
             config.chunk_size_lines = 300
+        
+        with pytest.raises(dataclasses.FrozenInstanceError):
+            config.max_recursion_depth = 512
