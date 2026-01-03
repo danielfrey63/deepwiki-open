@@ -25,6 +25,18 @@ _DEFINITION_TYPE_KEYWORDS = (
     "type",
 )
 
+# Node types that typically contain other definitions (classes, interfaces, etc.)
+# For these, we extract parent structure without child nodes
+_CONTAINER_TYPE_KEYWORDS = (
+    "class",
+    "interface",
+    "struct",
+    "enum",
+    "trait",
+    "module",
+    "namespace",
+)
+
 
 _EXT_TO_LANGUAGE: Dict[str, str] = {
     "py": "python",
@@ -93,8 +105,12 @@ def _iter_definition_like_nodes(root_node: Any) -> Iterable[Any]:
         node_type = getattr(child, "type", "")
         # Split node type into words to avoid partial matches on keywords.
         lowered_parts = set(node_type.lower().replace("_", " ").split())
+        
         if any(k in lowered_parts for k in _DEFINITION_TYPE_KEYWORDS):
             yield child
+        # Recursively search in block nodes (e.g., class bodies)
+        elif node_type in ("block", "declaration_list"):
+            yield from _iter_definition_like_nodes(child)
 
 
 def _split_lines_with_overlap(
@@ -198,43 +214,88 @@ class TreeSitterCodeSplitter:
         if not nodes:
             return self._fallback_line_split(text, meta)
 
-        pieces: List[Tuple[str, int]] = []
-        for node in nodes:
-            try:
-                start_b = int(getattr(node, "start_byte"))
-                end_b = int(getattr(node, "end_byte"))
-            except (AttributeError, ValueError, TypeError) as e:
-                logger.debug("Could not process a tree-sitter node for file type '%s': %s", file_type, e)
-                continue
-            snippet = _slice_text_by_bytes_preencoded(text_bytes, start_b, end_b)
-            start_line = _byte_offset_to_line_preencoded(text_bytes, start_b)
-            pieces.append((snippet, start_line))
-
-        if not pieces:
-            return self._fallback_line_split(text, meta)
-
         docs: List[Document] = []
-        for snippet, start_line in pieces:
-            snippet_lines = snippet.splitlines(True)
-            if len(snippet_lines) < self.config.min_chunk_lines:
-                continue
-
-            if len(snippet_lines) <= self.config.chunk_size_lines:
-                docs.append(self._make_chunk_doc(snippet, meta, start_line))
-                continue
-
-            for sub, sub_start_idx in _split_lines_with_overlap(
-                snippet_lines,
-                chunk_size_lines=self.config.chunk_size_lines,
-                chunk_overlap_lines=self.config.chunk_overlap_lines,
-            ):
-                sub_text = "".join(sub)
-                docs.append(self._make_chunk_doc(sub_text, meta, start_line + sub_start_idx))
+        for node in nodes:
+            node_docs = self._split_node_recursively(node, text_bytes, meta)
+            docs.extend(node_docs)
 
         if not docs:
             return self._fallback_line_split(text, meta)
         else:
             return self._add_chunk_metadata(docs)
+
+    def _split_node_recursively(self, node: Any, text_bytes: bytes, meta: Dict[str, Any]) -> List[Document]:
+        try:
+            start_b = int(getattr(node, "start_byte"))
+            end_b = int(getattr(node, "end_byte"))
+        except (AttributeError, ValueError, TypeError) as e:
+            logger.debug("Could not extract byte offsets from node: %s", e)
+            return []
+
+        snippet = _slice_text_by_bytes_preencoded(text_bytes, start_b, end_b)
+        start_line = _byte_offset_to_line_preencoded(text_bytes, start_b)
+        snippet_lines = snippet.splitlines(True)
+
+        # If node fits in chunk size, return it as-is (no min_chunk_lines filter for semantic nodes)
+        if len(snippet_lines) <= self.config.chunk_size_lines:
+            return [self._make_chunk_doc(snippet, meta, start_line)]
+
+        # Node is too large, try to split by child nodes
+        child_nodes = list(_iter_definition_like_nodes(node))
+        if child_nodes:
+            docs: List[Document] = []
+            
+            # Check if this is a container node (class, interface, etc.)
+            node_type = getattr(node, "type", "")
+            lowered_parts = set(node_type.lower().replace("_", " ").split())
+            is_container = any(k in lowered_parts for k in _CONTAINER_TYPE_KEYWORDS)
+            
+            # Only extract parent structure for container nodes
+            if is_container:
+                # Extract parent node WITHOUT child nodes (header + members + closing)
+                # This preserves class structure without duplicating method bodies
+                parent_parts = []
+                current_pos = start_b
+                
+                for child in child_nodes:
+                    child_start = int(getattr(child, "start_byte"))
+                    child_end = int(getattr(child, "end_byte"))
+                    
+                    # Add text before this child (header, members, etc.)
+                    if child_start > current_pos:
+                        part = _slice_text_by_bytes_preencoded(text_bytes, current_pos, child_start)
+                        parent_parts.append(part)
+                    
+                    # Skip the child node itself
+                    current_pos = child_end
+                
+                # Add any remaining text after last child (closing braces, etc.)
+                if current_pos < end_b:
+                    part = _slice_text_by_bytes_preencoded(text_bytes, current_pos, end_b)
+                    parent_parts.append(part)
+                
+                # Create parent chunk only if it has meaningful content (not just whitespace)
+                parent_text = "".join(parent_parts)
+                if parent_text.strip():  # Only add if there's non-whitespace content
+                    docs.append(self._make_chunk_doc(parent_text, meta, start_line))
+            
+            # Then recursively process child nodes (no min_chunk_lines filter)
+            for child in child_nodes:
+                child_docs = self._split_node_recursively(child, text_bytes, meta)
+                docs.extend(child_docs)
+            
+            return docs
+
+        # No child nodes found, fall back to line-based splitting
+        docs: List[Document] = []
+        for sub, sub_start_idx in _split_lines_with_overlap(
+            snippet_lines,
+            chunk_size_lines=self.config.chunk_size_lines,
+            chunk_overlap_lines=self.config.chunk_overlap_lines,
+        ):
+            sub_text = "".join(sub)
+            docs.append(self._make_chunk_doc(sub_text, meta, start_line + sub_start_idx))
+        return docs
 
     def _add_chunk_metadata(self, docs: List[Document]) -> List[Document]:
         for i, d in enumerate(docs):
