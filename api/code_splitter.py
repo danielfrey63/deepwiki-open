@@ -103,14 +103,18 @@ def _iter_definition_like_nodes(root_node: Any) -> Iterable[Any]:
         if not getattr(child, "is_named", False):
             continue
         node_type = getattr(child, "type", "")
+        
+        # Prioritize recursing into block-like nodes to find actual definitions
+        if node_type in ("block", "declaration_list", "class_body", "statement_block", "member_specialization_list"):
+            yield from _iter_definition_like_nodes(child)
+            continue
+
         # Split node type into words to avoid partial matches on keywords.
         lowered_parts = set(node_type.lower().replace("_", " ").split())
         
+        # If this node itself is a definition, yield it
         if any(k in lowered_parts for k in _DEFINITION_TYPE_KEYWORDS):
             yield child
-        # Recursively search in block nodes (e.g., class bodies)
-        elif node_type in ("block", "declaration_list"):
-            yield from _iter_definition_like_nodes(child)
 
 
 def _split_lines_with_overlap(
@@ -245,39 +249,33 @@ class TreeSitterCodeSplitter:
         if child_nodes:
             docs: List[Document] = []
             
-            # Check if this is a container node (class, interface, etc.)
-            node_type = getattr(node, "type", "")
-            lowered_parts = set(node_type.lower().replace("_", " ").split())
-            is_container = any(k in lowered_parts for k in _CONTAINER_TYPE_KEYWORDS)
+            # Extract parent node WITHOUT child nodes to preserve its context.
+            # This is crucial for both container nodes (like classes) and other large
+            # nodes (like functions) that are split due to containing nested definitions.
+            parent_parts = []
+            current_pos = start_b
             
-            # Only extract parent structure for container nodes
-            if is_container:
-                # Extract parent node WITHOUT child nodes (header + members + closing)
-                # This preserves class structure without duplicating method bodies
-                parent_parts = []
-                current_pos = start_b
+            for child in child_nodes:
+                child_start = int(getattr(child, "start_byte"))
+                child_end = int(getattr(child, "end_byte"))
                 
-                for child in child_nodes:
-                    child_start = int(getattr(child, "start_byte"))
-                    child_end = int(getattr(child, "end_byte"))
-                    
-                    # Add text before this child (header, members, etc.)
-                    if child_start > current_pos:
-                        part = _slice_text_by_bytes_preencoded(text_bytes, current_pos, child_start)
-                        parent_parts.append(part)
-                    
-                    # Skip the child node itself
-                    current_pos = child_end
-                
-                # Add any remaining text after last child (closing braces, etc.)
-                if current_pos < end_b:
-                    part = _slice_text_by_bytes_preencoded(text_bytes, current_pos, end_b)
+                # Add text before this child (header, members, etc.)
+                if child_start > current_pos:
+                    part = _slice_text_by_bytes_preencoded(text_bytes, current_pos, child_start)
                     parent_parts.append(part)
                 
-                # Create parent chunk only if it has meaningful content (not just whitespace)
-                parent_text = "".join(parent_parts)
-                if parent_text.strip():  # Only add if there's non-whitespace content
-                    docs.append(self._make_chunk_doc(parent_text, meta, start_line))
+                # Skip the child node itself
+                current_pos = child_end
+            
+            # Add any remaining text after last child (closing braces, etc.)
+            if current_pos < end_b:
+                part = _slice_text_by_bytes_preencoded(text_bytes, current_pos, end_b)
+                parent_parts.append(part)
+            
+            # Create parent chunk only if it has meaningful content (not just whitespace)
+            parent_text = "".join(parent_parts)
+            if parent_text.strip():  # Only add if there's non-whitespace content
+                docs.append(self._make_chunk_doc(parent_text, meta, start_line))
             
             # Then recursively process child nodes (no min_chunk_lines filter)
             for child in child_nodes:

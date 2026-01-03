@@ -169,30 +169,60 @@ class TestTreeSitterCodeSplitter:
         assert result[0].text == code
 
     def test_javascript_code(self, splitter):
-        """Test splitting JavaScript code."""
+        """Test splitting JavaScript code with a complex structure and scattered members."""
         code = '''class UserService {
-
-    private String s;
+    // Top-level property
+    static API_VERSION = "1.0.0";
+    
+    #privateField = "internal";
+    public_prop = "visible";
 
     public constructor() {
         this.users = [];
+        this.config = { enabled: true };
     }
     
-    addUser(user) {
-        this.users.push(user);
-        return user;
+    // Member between methods
+    maxUsers = 100;
+    
+    async addUser(user) {
+        if (this.users.length >= this.maxUsers) {
+            throw new Error("Limit reached");
+        }
+        
+        // Nested utility function
+        const validate = (u) => {
+            console.log("Validating...");
+            return u && u.id;
+        };
+        
+        if (validate(user)) {
+            this.users.push(user);
+            return user;
+        }
     }
+    
+    #internalAudit() {
+        console.log("Auditing user action...");
+    }
+    
+    // Another property
+    status = "active";
     
     public removeUser(userId) {
+        this.#internalAudit();
         const index = this.users.findIndex(u => u.id === userId);
         if (index !== -1) {
             this.users.splice(index, 1);
         }
     }
     
-    protected getUser(userId) {
+    getUser(userId) {
         return this.users.find(u => u.id === userId);
     }
+    
+    // Closing field
+    lastUpdated = Date.now();
 }
 '''
         doc = Document(
@@ -203,6 +233,161 @@ class TestTreeSitterCodeSplitter:
         result = splitter.split_document(doc)
         
         assert len(result) >= 1
+        
+        # Verify that the class header and scattered members are preserved in the parent shell
+        parent_shell = next((c for c in result if "class UserService" in c.text), None)
+        assert parent_shell is not None
+        assert "static API_VERSION" in parent_shell.text
+        assert "maxUsers = 100" in parent_shell.text
+        assert "status = \"active\"" in parent_shell.text
+        assert "lastUpdated = Date.now()" in parent_shell.text
+        
+        # Verify methods are extracted as separate chunks
+        assert any("constructor()" in c.text for c in result)
+        assert any("async addUser" in c.text for c in result)
+        assert any("removeUser" in c.text for c in result)
+        assert any("getUser" in c.text for c in result)
+
+    def test_large_function_with_nested_functions(self, splitter):
+        """Test that large functions with nested functions preserve parent context."""
+        # Use a function larger than chunk_size_lines (13) to trigger recursive splitting
+        code = '''def large_parent_function():
+    # code part 1: initialization
+    x = 10
+    y = 20
+    print("Initializing...")
+
+    def nested_function_1():
+        """First nested function."""
+        print("Nested 1")
+        return 1
+
+    # code part 2: intermediate logic
+    z = x + y
+    print(f"Intermediate result: {z}")
+
+    def nested_function_2():
+        """Second nested function."""
+        print("Nested 2")
+        return 2
+
+    # code part 3: final logic
+    result = z + nested_function_1() + nested_function_2()
+    print(f"Final result: {result}")
+    return result
+'''
+        doc = Document(
+            text=code,
+            meta_data={"file_path": "nested.py", "type": "py", "is_code": True},
+        )
+        
+        result = splitter.split_document(doc)
+        
+        # Should split into parent shell + 2 nested functions
+        assert len(result) >= 3
+        
+        # Find the parent shell chunk
+        parent_shell = next((c for c in result if "def large_parent_function" in c.text), None)
+        assert parent_shell is not None
+        assert "# code part 1" in parent_shell.text
+        assert "# code part 2" in parent_shell.text
+        assert "# code part 3" in parent_shell.text
+        
+        # Verify nested functions are also present as separate chunks
+        assert any("def nested_function_1" in c.text for c in result)
+        assert any("def nested_function_2" in c.text for c in result)
+
+    def test_deeply_nested_complex_structure(self, splitter):
+        """Test recursive splitting of a deeply nested complex structure."""
+        code = '''class DatabaseManager:
+    """Top-level class for managing database operations."""
+    
+    DEFAULT_TIMEOUT = 30
+    
+    def __init__(self, connection_string):
+        self.conn = connection_string
+        self.active = True
+        print(f"Connecting to {connection_string}...")
+
+    def process_data(self, data):
+        """A large method with nested logic and functions."""
+        print("Starting data processing...")
+        
+        def validate_input(item):
+            """Nested validation function."""
+            print(f"Validating {item}")
+            return item is not None
+            
+        def transform_item(item):
+            """Nested transformation function."""
+            # Part 1 of transformation
+            print("Transforming part 1")
+            
+            def deep_nested_util():
+                """Deeply nested utility."""
+                return "util_result"
+                
+            # Part 2 of transformation
+            return f"transformed_{item}_{deep_nested_util()}"
+
+        results = []
+        for d in data:
+            if validate_input(d):
+                results.append(transform_item(d))
+        
+        print("Data processing complete.")
+        return results
+
+    class InternalCache:
+        """Nested class for internal caching."""
+        
+        def __init__(self):
+            self.cache = {}
+            
+        def get_item(self, key):
+            """Method in nested class."""
+            return self.cache.get(key)
+            
+        def set_item(self, key, value):
+            """Another method in nested class with its own nested logic."""
+            print(f"Caching {key}")
+            
+            def compute_hash(v):
+                """Nested function in nested class method."""
+                return hash(v)
+                
+            self.cache[key] = (value, compute_hash(value))
+'''
+        doc = Document(
+            text=code,
+            meta_data={"file_path": "manager.py", "type": "py", "is_code": True},
+        )
+        
+        result = splitter.split_document(doc)
+        
+        # Should split into many chunks due to deep nesting and size
+        assert len(result) >= 5
+        
+        # Verify top-level class shell
+        manager_shell = next((c for c in result if "class DatabaseManager" in c.text), None)
+        assert manager_shell is not None
+        assert "DEFAULT_TIMEOUT = 30" in manager_shell.text
+        
+        # Verify InternalCache shell (it's a container node)
+        cache_shell = next((c for c in result if "class InternalCache" in c.text), None)
+        assert cache_shell is not None
+        
+        # Verify deep nested functions are captured as separate chunks
+        assert any("def validate_input" in c.text for c in result)
+        assert any("def transform_item" in c.text for c in result)
+        assert any("def deep_nested_util" in c.text for c in result)
+        assert any("def compute_hash" in c.text for c in result)
+        
+        # Verify shell context for process_data
+        process_data_shell = next((c for c in result if "def process_data" in c.text), None)
+        assert process_data_shell is not None
+        assert "results = []" in process_data_shell.text
+        assert "return results" in process_data_shell.text
 
     def test_unsupported_language_fallback(self, splitter):
         """Test fallback for unsupported file types."""
