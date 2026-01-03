@@ -368,7 +368,6 @@ class CodeAwareSplitter(DataComponent):
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "CodeAwareSplitter":
-        from adalflow.components.data_process import TextSplitter
         text_splitter_data = data.get("text_splitter")
         text_splitter = TextSplitter.from_dict(text_splitter_data) if text_splitter_data else TextSplitter()
         code_config = data.get("code_splitter_config", {})
