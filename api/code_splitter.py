@@ -207,7 +207,8 @@ class TreeSitterCodeSplitter:
         text_bytes = text.encode("utf-8", errors="replace")
         try:
             tree = parser.parse(text_bytes)
-        except Exception:
+        except Exception as e:
+            logger.warning("Tree-sitter parsing failed for file_type '%s', falling back. Error: %s", file_type, e)
             return self._fallback_line_split(text, meta)
 
         root = getattr(tree, "root_node", None)
