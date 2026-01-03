@@ -70,18 +70,14 @@ class CodeSplitterConfig:
 
 def _safe_import_tree_sitter() -> Optional[Callable[..., Any]]:
     """Safely import and return the `get_parser` function from tree_sitter_languages."""
-    module_candidates = [
-        "tree_sitter_languages",  # module name used by tree-sitter-languages on most installs
-    ]
-
-    for module_name in module_candidates:
-        try:
-            mod = importlib.import_module(module_name)
-            get_parser = getattr(mod, "get_parser", None)
-            if callable(get_parser):
-                return get_parser
-        except ImportError:
-            continue
+    try:
+        # The module name used by tree-sitter-languages on most installs
+        mod = importlib.import_module("tree_sitter_languages")
+        get_parser = getattr(mod, "get_parser", None)
+        if callable(get_parser):
+            return get_parser
+    except ImportError:
+        logger.debug("`tree_sitter_languages` not found. Tree-sitter parsing will be unavailable.")
 
     return None
 
