@@ -25,6 +25,75 @@ _DEFINITION_TYPE_KEYWORDS = (
     "type",
 )
 
+# Language-specific queries for identifying definitions
+_DEFINITION_QUERIES = {
+    "python": """
+        (class_definition) @definition
+        (function_definition) @definition
+    """,
+    "javascript": """
+        (class_declaration) @definition
+        (function_declaration) @definition
+        (method_definition) @definition
+        (arrow_function) @definition
+    """,
+    "typescript": """
+        (class_declaration) @definition
+        (function_declaration) @definition
+        (method_definition) @definition
+        (interface_declaration) @definition
+        (type_alias_declaration) @definition
+        (enum_declaration) @definition
+    """,
+    "tsx": """
+        (class_declaration) @definition
+        (function_declaration) @definition
+        (method_definition) @definition
+        (interface_declaration) @definition
+        (type_alias_declaration) @definition
+        (enum_declaration) @definition
+    """,
+    "java": """
+        (class_declaration) @definition
+        (interface_declaration) @definition
+        (enum_declaration) @definition
+        (method_declaration) @definition
+        (constructor_declaration) @definition
+    """,
+    "cpp": """
+        (class_specifier) @definition
+        (struct_specifier) @definition
+        (enum_specifier) @definition
+        (function_definition) @definition
+    """,
+    "rust": """
+        (struct_item) @definition
+        (enum_item) @definition
+        (function_item) @definition
+        (impl_item) @definition
+        (trait_item) @definition
+        (mod_item) @definition
+    """,
+    "go": """
+        (type_declaration) @definition
+        (function_declaration) @definition
+        (method_declaration) @definition
+    """,
+}
+
+_NON_DEFINITION_KEYWORDS = frozenset(
+    (
+        "call",
+        "argument",
+        "parameter",
+        "pointer",
+        "reference",
+        "expression",
+        "access",
+        "template",
+    )
+)
+
 
 _EXT_TO_LANGUAGE: Dict[str, str] = {
     "py": "python",
@@ -69,18 +138,18 @@ class CodeSplitterConfig:
     enabled: bool = True
 
 
-def _safe_import_tree_sitter() -> Optional[Callable[..., Any]]:
-    """Safely import and return the `get_parser` function from tree_sitter_languages."""
+def _safe_import_tree_sitter() -> Tuple[Optional[Callable[..., Any]], Optional[Callable[..., Any]]]:
+    """Safely import and return the `get_parser` and `get_language` functions from tree_sitter_languages."""
     try:
         # The module name used by tree-sitter-languages on most installs
         mod = importlib.import_module("tree_sitter_languages")
         get_parser = getattr(mod, "get_parser", None)
-        if callable(get_parser):
-            return get_parser
+        get_language = getattr(mod, "get_language", None)
+        return get_parser, get_language
     except ImportError:
         logger.debug("`tree_sitter_languages` not found. Tree-sitter parsing will be unavailable.")
 
-    return None
+    return None, None
 
 
 def _iter_definition_like_nodes(root_node: Any) -> Iterable[Any]:
@@ -98,7 +167,9 @@ def _iter_definition_like_nodes(root_node: Any) -> Iterable[Any]:
         lowered_parts = set(node_type.lower().replace("_", " ").split())
         
         # If this node itself is a definition, yield it
-        if any(k in lowered_parts for k in _DEFINITION_TYPE_KEYWORDS):
+        if any(k in lowered_parts for k in _DEFINITION_TYPE_KEYWORDS) and not (
+            lowered_parts & _NON_DEFINITION_KEYWORDS
+        ):
             yield child
 
 
@@ -149,7 +220,7 @@ class TreeSitterCodeSplitter:
             max_recursion_depth=max_recursion_depth,
             enabled=enabled,
         )
-        self._get_parser = _safe_import_tree_sitter()
+        self._get_parser, self._get_language = _safe_import_tree_sitter()
 
     def split_document(self, doc: Document) -> List[Document]:
         if not self.config.enabled:
@@ -199,7 +270,30 @@ class TreeSitterCodeSplitter:
         if root is None:
             return self._fallback_line_split(text, meta)
 
-        nodes = list(_iter_definition_like_nodes(root))
+        # Try symbolic query first
+        nodes = []
+        if self._get_language:
+            for name in self._get_language_name_candidates(file_type):
+                query_scm = _DEFINITION_QUERIES.get(name)
+                if query_scm:
+                    try:
+                        lang = self._get_language(name)
+                        query = lang.query(query_scm)
+                        captures = query.captures(root)
+                        # Filter for top-level or direct child definitions found by query
+                        # Tree-sitter query returns all matches in the tree.
+                        # We want the ones that are "top-level" relative to our current splitting scope.
+                        nodes = [node for node, tag in captures if tag == "definition"]
+                        if nodes:
+                            logger.debug("Found %d definition nodes for '%s' using symbolic query.", len(nodes), name)
+                            break
+                    except Exception as e:
+                        logger.debug("Symbolic query failed for language '%s': %s", name, e)
+
+        # Fallback to heuristic if no nodes found via query
+        if not nodes:
+            nodes = list(_iter_definition_like_nodes(root))
+
         if not nodes:
             return self._fallback_line_split(text, meta)
 
