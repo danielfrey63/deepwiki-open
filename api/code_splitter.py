@@ -150,9 +150,6 @@ class TreeSitterCodeSplitter:
         )
         self._get_parser = _safe_import_tree_sitter()
 
-    def is_available(self) -> bool:
-        return self._get_parser is not None
-
     def split_document(self, doc: Document) -> List[Document]:
         if not self.config.enabled:
             return [doc]
