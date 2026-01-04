@@ -1,10 +1,12 @@
 import pytest
 import dataclasses
 from adalflow.core.types import Document
+from unittest.mock import MagicMock, patch
 from api.code_splitter import (
     TreeSitterCodeSplitter,
     CodeAwareSplitter,
     CodeSplitterConfig,
+    _split_lines_with_overlap,
 )
 from adalflow.components.data_process import TextSplitter
 
@@ -493,6 +495,46 @@ in the pipeline
         assert len(result) == 1
         assert result[0].text == text
 
+    def test_try_get_parser_none(self, splitter):
+        """Test _try_get_parser when _get_parser is None."""
+        splitter._get_parser = None
+        assert splitter._try_get_parser("py") is None
+
+    def test_split_code_text_root_none(self, splitter):
+        """Test _split_code_text when tree.root_node is None."""
+        mock_parser = MagicMock()
+        mock_tree = MagicMock()
+        mock_tree.root_node = None
+        mock_parser.parse.return_value = mock_tree
+        
+        with patch.object(splitter, '_try_get_parser', return_value=mock_parser):
+            text = "some text"
+            meta = {"is_code": True}
+            # Should fall back to line splitting
+            result = splitter._split_code_text(text, meta, "py")
+            assert len(result) >= 1
+            assert result[0].text == text
+
+    def test_split_code_text_empty_docs(self, splitter):
+        """Test _split_code_text when nodes are found but recursion returns no docs."""
+        mock_parser = MagicMock()
+        mock_tree = MagicMock()
+        mock_node = MagicMock()
+        mock_tree.root_node = mock_node
+        mock_parser.parse.return_value = mock_tree
+        
+        # Mock _iter_definition_like_nodes to yield one node
+        # and _split_node_recursively to return empty list
+        with patch('api.code_splitter._iter_definition_like_nodes', return_value=[mock_node]):
+            with patch.object(splitter, '_split_node_recursively', return_value=[]):
+                with patch.object(splitter, '_try_get_parser', return_value=mock_parser):
+                    text = "some text"
+                    meta = {"is_code": True}
+                    result = splitter._split_code_text(text, meta, "py")
+                    # Should hit the "if not docs" block and fall back to line split
+                    assert len(result) >= 1
+                    assert result[0].text == text
+
 
 class TestCodeAwareSplitter:
     """Test suite for CodeAwareSplitter integration."""
@@ -589,3 +631,14 @@ class TestCodeSplitterConfig:
         
         with pytest.raises(dataclasses.FrozenInstanceError):
             config.max_recursion_depth = 512
+
+
+class TestHelperFunctions:
+    """Test suite for internal helper functions."""
+
+    def test_split_lines_with_overlap_zero_chunk_size(self):
+        """Test _split_lines_with_overlap with chunk_size_lines=0."""
+        lines = ["line1", "line2", "line3"]
+        result = _split_lines_with_overlap(lines, chunk_size_lines=0, chunk_overlap_lines=5)
+        assert len(result) == 1
+        assert result[0] == (lines, 0)
