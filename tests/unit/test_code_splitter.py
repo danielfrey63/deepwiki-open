@@ -535,6 +535,38 @@ in the pipeline
                     assert len(result) >= 1
                     assert result[0].text == text
 
+    def test_try_get_parser_internal_exception(self, splitter):
+        """Test _try_get_parser when the parser factory raises an exception."""
+        mock_get_parser = MagicMock(side_effect=Exception("Parser failure"))
+        splitter._get_parser = mock_get_parser
+        
+        # Should catch exception and return None after trying candidates
+        assert splitter._try_get_parser("py") is None
+        assert mock_get_parser.called
+
+    def test_split_code_text_parse_exception(self, splitter):
+        """Test _split_code_text when parser.parse raises an exception."""
+        mock_parser = MagicMock()
+        mock_parser.parse.side_effect = Exception("Parsing crash")
+        
+        with patch.object(splitter, '_try_get_parser', return_value=mock_parser):
+            text = "def crash(): pass"
+            meta = {"is_code": True}
+            # Should catch exception and fall back to line splitting
+            result = splitter._split_code_text(text, meta, "py")
+            assert len(result) >= 1
+            assert result[0].text == text
+
+    def test_split_node_recursively_invalid_node(self, splitter):
+        """Test _split_node_recursively with a corrupt node that raises AttributeError."""
+        # A mock with empty spec will raise AttributeError on any attribute access
+        mock_node = MagicMock(spec=[])
+        
+        meta = {"is_code": True}
+        text_bytes = b"def test(): pass"
+        # Should catch AttributeError and return empty list
+        result = splitter._split_node_recursively(mock_node, text_bytes, meta, depth=0)
+        assert result == []
 
 class TestCodeAwareSplitter:
     """Test suite for CodeAwareSplitter integration."""
@@ -635,6 +667,12 @@ class TestCodeSplitterConfig:
 
 class TestHelperFunctions:
     """Test suite for internal helper functions."""
+
+    def test_safe_import_tree_sitter_error(self):
+        """Test _safe_import_tree_sitter when importlib raises ImportError."""
+        with patch("importlib.import_module", side_effect=ImportError("module not found")):
+            from api.code_splitter import _safe_import_tree_sitter
+            assert _safe_import_tree_sitter() is None
 
     def test_split_lines_with_overlap_zero_chunk_size(self):
         """Test _split_lines_with_overlap with chunk_size_lines=0."""
