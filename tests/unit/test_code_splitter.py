@@ -672,7 +672,9 @@ class TestHelperFunctions:
         """Test _safe_import_tree_sitter when importlib raises ImportError."""
         with patch("importlib.import_module", side_effect=ImportError("module not found")):
             from api.code_splitter import _safe_import_tree_sitter
-            assert _safe_import_tree_sitter() is None
+            get_parser, get_language = _safe_import_tree_sitter()
+            assert get_parser is None
+            assert get_language is None
 
     def test_split_lines_with_overlap_zero_chunk_size(self):
         """Test _split_lines_with_overlap with chunk_size_lines=0."""
