@@ -3,7 +3,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 import importlib
 import logging
+<<<<<<< HEAD
 from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence, Tuple
+=======
+from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
+>>>>>>> 4e5e7c5 ((fix/functional-chunker@d4c4e2b): fix: introduce functional chunking for source files)
 
 from adalflow.core.component import DataComponent
 from adalflow.components.data_process import TextSplitter
@@ -25,6 +29,10 @@ _DEFINITION_TYPE_KEYWORDS = (
     "type",
 )
 
+<<<<<<< HEAD
+=======
+
+>>>>>>> 4e5e7c5 ((fix/functional-chunker@d4c4e2b): fix: introduce functional chunking for source files)
 _EXT_TO_LANGUAGE: Dict[str, str] = {
     "py": "python",
     "js": "javascript",
@@ -64,6 +72,7 @@ class CodeSplitterConfig:
     chunk_size_lines: int = 200
     chunk_overlap_lines: int = 20
     min_chunk_lines: int = 5
+<<<<<<< HEAD
     max_recursion_depth: int = 256
     enabled: bool = True
 
@@ -98,6 +107,35 @@ def _iter_definition_like_nodes(root_node: Any) -> Iterable[Any]:
         
         # If this node itself is a definition, yield it
         if any(k in lowered_parts for k in _DEFINITION_TYPE_KEYWORDS):
+=======
+    enabled: bool = True
+
+
+def _safe_import_tree_sitter() -> Tuple[Any, Any, Any]:
+    module_candidates = [
+        "tree_sitter_languages",  # module name used by tree-sitter-languages on most installs
+    ]
+
+    for module_name in module_candidates:
+        try:
+            mod = importlib.import_module(module_name)
+            get_parser = getattr(mod, "get_parser", None)
+            if callable(get_parser):
+                return get_parser, None, None
+        except Exception:
+            continue
+
+    return None, None, None
+
+
+def _iter_definition_like_nodes(root_node: Any) -> Iterable[Any]:
+    for child in getattr(root_node, "children", []) or []:
+        if not getattr(child, "is_named", False):
+            continue
+        node_type = getattr(child, "type", "") or ""
+        lowered = node_type.lower()
+        if any(k in lowered for k in _DEFINITION_TYPE_KEYWORDS):
+>>>>>>> 4e5e7c5 ((fix/functional-chunker@d4c4e2b): fix: introduce functional chunking for source files)
             yield child
 
 
@@ -122,6 +160,7 @@ def _split_lines_with_overlap(
     return chunks
 
 
+<<<<<<< HEAD
 def _slice_text_by_bytes_preencoded(text_bytes: bytes, start_byte: int, end_byte: int) -> str:
     return text_bytes[start_byte:end_byte].decode("utf-8", errors="replace")
 
@@ -129,6 +168,16 @@ def _slice_text_by_bytes_preencoded(text_bytes: bytes, start_byte: int, end_byte
 def _byte_offset_to_line_preencoded(text_bytes: bytes, byte_offset: int) -> int:
     prefix = text_bytes[:max(0, byte_offset)]
     return prefix.count(b"\n") + 1
+=======
+def _slice_text_by_bytes(text: str, start_byte: int, end_byte: int) -> str:
+    b = text.encode("utf-8", errors="replace")
+    return b[start_byte:end_byte].decode("utf-8", errors="replace")
+
+
+def _byte_offset_to_line(text: str, byte_offset: int) -> int:
+    prefix = _slice_text_by_bytes(text, 0, max(0, byte_offset))
+    return prefix.count("\n") + 1
+>>>>>>> 4e5e7c5 ((fix/functional-chunker@d4c4e2b): fix: introduce functional chunking for source files)
 
 
 class TreeSitterCodeSplitter:
@@ -138,17 +187,26 @@ class TreeSitterCodeSplitter:
         chunk_size_lines: int = 200,
         chunk_overlap_lines: int = 20,
         min_chunk_lines: int = 5,
+<<<<<<< HEAD
         max_recursion_depth: int = 256,
+=======
+>>>>>>> 4e5e7c5 ((fix/functional-chunker@d4c4e2b): fix: introduce functional chunking for source files)
         enabled: bool = True,
     ) -> None:
         self.config = CodeSplitterConfig(
             chunk_size_lines=chunk_size_lines,
             chunk_overlap_lines=chunk_overlap_lines,
             min_chunk_lines=min_chunk_lines,
+<<<<<<< HEAD
             max_recursion_depth=max_recursion_depth,
             enabled=enabled,
         )
         self._get_parser = _safe_import_tree_sitter()
+=======
+            enabled=enabled,
+        )
+        self._get_parser, _, _ = _safe_import_tree_sitter()
+>>>>>>> 4e5e7c5 ((fix/functional-chunker@d4c4e2b): fix: introduce functional chunking for source files)
 
     def is_available(self) -> bool:
         return self._get_parser is not None
@@ -180,8 +238,12 @@ class TreeSitterCodeSplitter:
         for name in self._get_language_name_candidates(file_type):
             try:
                 return self._get_parser(name)
+<<<<<<< HEAD
             except Exception as e:
                 logger.debug("Failed to get parser for language '%s': %s", name, e)
+=======
+            except Exception:
+>>>>>>> 4e5e7c5 ((fix/functional-chunker@d4c4e2b): fix: introduce functional chunking for source files)
                 continue
         return None
 
@@ -190,11 +252,17 @@ class TreeSitterCodeSplitter:
         if parser is None:
             return self._fallback_line_split(text, meta)
 
+<<<<<<< HEAD
         text_bytes = text.encode("utf-8", errors="replace")
         try:
             tree = parser.parse(text_bytes)
         except Exception as e:
             logger.warning("Tree-sitter parsing failed for file_type '%s', falling back. Error: %s", file_type, e)
+=======
+        try:
+            tree = parser.parse(text.encode("utf-8", errors="replace"))
+        except Exception:
+>>>>>>> 4e5e7c5 ((fix/functional-chunker@d4c4e2b): fix: introduce functional chunking for source files)
             return self._fallback_line_split(text, meta)
 
         root = getattr(tree, "root_node", None)
@@ -205,6 +273,7 @@ class TreeSitterCodeSplitter:
         if not nodes:
             return self._fallback_line_split(text, meta)
 
+<<<<<<< HEAD
         docs: List[Document] = []
         for node in nodes:
             node_docs = self._split_node_recursively(node, text_bytes, meta, depth=0)
@@ -295,6 +364,47 @@ class TreeSitterCodeSplitter:
         for i, d in enumerate(docs):
             d.meta_data["chunk_index"] = i
             d.meta_data["chunk_total"] = len(docs)
+=======
+        pieces: List[Tuple[str, int]] = []
+        for node in nodes:
+            try:
+                start_b = int(getattr(node, "start_byte"))
+                end_b = int(getattr(node, "end_byte"))
+            except Exception:
+                continue
+            snippet = _slice_text_by_bytes(text, start_b, end_b)
+            start_line = _byte_offset_to_line(text, start_b)
+            pieces.append((snippet, start_line))
+
+        if not pieces:
+            return self._fallback_line_split(text, meta)
+
+        docs: List[Document] = []
+        for snippet, start_line in pieces:
+            snippet_lines = snippet.splitlines(True)
+            if len(snippet_lines) < self.config.min_chunk_lines:
+                continue
+
+            if len(snippet_lines) <= self.config.chunk_size_lines:
+                docs.append(self._make_chunk_doc(snippet, meta, start_line))
+                continue
+
+            for sub, sub_start_idx in _split_lines_with_overlap(
+                snippet_lines,
+                chunk_size_lines=self.config.chunk_size_lines,
+                chunk_overlap_lines=self.config.chunk_overlap_lines,
+            ):
+                sub_text = "".join(sub)
+                docs.append(self._make_chunk_doc(sub_text, meta, start_line + sub_start_idx))
+
+        if not docs:
+            return self._fallback_line_split(text, meta)
+
+        for i, d in enumerate(docs):
+            d.meta_data["chunk_index"] = i
+            d.meta_data["chunk_total"] = len(docs)
+
+>>>>>>> 4e5e7c5 ((fix/functional-chunker@d4c4e2b): fix: introduce functional chunking for source files)
         return docs
 
     def _fallback_line_split(self, text: str, meta: Dict[str, Any]) -> List[Document]:
@@ -313,8 +423,17 @@ class TreeSitterCodeSplitter:
 
         if not docs:
             return [Document(text=text, meta_data=dict(meta))]
+<<<<<<< HEAD
         else:
             return self._add_chunk_metadata(docs)
+=======
+
+        for i, d in enumerate(docs):
+            d.meta_data["chunk_index"] = i
+            d.meta_data["chunk_total"] = len(docs)
+
+        return docs
+>>>>>>> 4e5e7c5 ((fix/functional-chunker@d4c4e2b): fix: introduce functional chunking for source files)
 
     def _make_chunk_doc(self, chunk_text: str, meta: Dict[str, Any], start_line: int) -> Document:
         new_meta = dict(meta)
@@ -353,6 +472,7 @@ class CodeAwareSplitter(DataComponent):
                 logger.info("TextSplitter result: %s -> %d chunks", file_path, len(chunks))
                 output.extend(chunks)
         return output
+<<<<<<< HEAD
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -373,3 +493,5 @@ class CodeAwareSplitter(DataComponent):
         code_config = data.get("code_splitter_config", {})
         code_splitter = TreeSitterCodeSplitter(**code_config)
         return cls(text_splitter=text_splitter, code_splitter=code_splitter)
+=======
+>>>>>>> 4e5e7c5 ((fix/functional-chunker@d4c4e2b): fix: introduce functional chunking for source files)
