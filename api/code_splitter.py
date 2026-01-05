@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from copy import deepcopy
 from dataclasses import dataclass
 import importlib
 import logging
@@ -11,18 +12,20 @@ from adalflow.core.types import Document
 
 logger = logging.getLogger(__name__)
 
-_DEFINITION_TYPE_KEYWORDS = (
-    "function",
-    "method",
-    "class",
-    "interface",
-    "struct",
-    "enum",
-    "trait",
-    "impl",
-    "module",
-    "namespace",
-    "type",
+_DEFINITION_TYPE_KEYWORDS = frozenset(
+    (
+        "function",
+        "method",
+        "class",
+        "interface",
+        "struct",
+        "enum",
+        "trait",
+        "impl",
+        "module",
+        "namespace",
+        "type",
+    )
 )
 
 # Language-specific queries for identifying definitions
@@ -116,14 +119,6 @@ _EXT_TO_LANGUAGE: Dict[str, str] = {
     "scala": "scala",
     "lua": "lua",
     "sh": "bash",
-    "bash": "bash",
-    "html": "html",
-    "css": "css",
-    "json": "json",
-    "yml": "yaml",
-    "yaml": "yaml",
-    "toml": "toml",
-    "md": "markdown",
 }
 
 
@@ -150,23 +145,28 @@ def _safe_import_tree_sitter() -> Tuple[Optional[Callable[..., Any]], Optional[C
     return None, None
 
 
+_BLOCK_LIKE_NODE_TYPES = frozenset(
+    ("block", "declaration_list", "class_body", "statement_block", "member_specialization_list")
+)
+
+
 def _iter_definition_like_nodes(root_node: Any) -> Iterable[Any]:
     for child in getattr(root_node, "children", []):
         if not getattr(child, "is_named", False):
             continue
         node_type = getattr(child, "type", "")
-        
+
         # Prioritize recursing into block-like nodes to find actual definitions
-        if node_type in ("block", "declaration_list", "class_body", "statement_block", "member_specialization_list"):
+        if node_type in _BLOCK_LIKE_NODE_TYPES:
             yield from _iter_definition_like_nodes(child)
             continue
 
         # Split node type into words to avoid partial matches on keywords.
         lowered_parts = set(node_type.lower().replace("_", " ").split())
-        
+
         # If this node itself is a definition, yield it
-        if any(k in lowered_parts for k in _DEFINITION_TYPE_KEYWORDS) and not (
-            lowered_parts & _NON_DEFINITION_KEYWORDS
+        if not lowered_parts.isdisjoint(_DEFINITION_TYPE_KEYWORDS) and lowered_parts.isdisjoint(
+            _NON_DEFINITION_KEYWORDS
         ):
             yield child
 
@@ -402,12 +402,12 @@ class TreeSitterCodeSplitter:
             docs.append(self._make_chunk_doc(sub_text, meta, start_line))
 
         if not docs:
-            return [Document(text=text, meta_data=dict(meta))]
+            return [Document(text=text, meta_data=deepcopy(meta))]
         else:
             return self._add_chunk_metadata(docs)
 
     def _make_chunk_doc(self, chunk_text: str, meta: Dict[str, Any], start_line: int) -> Document:
-        new_meta = dict(meta)
+        new_meta = deepcopy(meta)
         new_meta["chunk_start_line"] = start_line
         file_path = new_meta.get("file_path")
         if file_path:
